@@ -489,7 +489,7 @@
 </nav>
 
 <script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxwknSutmwt8-r3qz3X14HHS__fEXZNxulPSCebG3OA7s2VNQkPUvaEpGPpNBJT7sdR/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwqmm60ep7xf-4h_pInfpuqDSUX8mp2-UYsYNKu7WXaZS1Ugu_ftp66IK1tz7D-nq-Y/exec";
 const CLOUD_URL  = "https://api.cloudinary.com/v1_1/ddrpctqpl/auto/upload";
 const PRESET     = "lapp_reset";
 const REACTIONS  = ['❤️','😂','😮','😢','🔥','👏'];
@@ -1469,10 +1469,29 @@ function closeProfilePopup(e) {
 
 // ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 let seenNotifCount = parseInt(localStorage.getItem('lapp_seen_notifs') || '0');
+let notifHistory   = JSON.parse(localStorage.getItem('lapp_notif_history') || '[]');
+
+function makeNotifKey(n) {
+    return n.type + '_' + (n.user||'') + '_' + (n.postUrl||'') + '_' + (n.time||'');
+}
 
 function checkNotifications(data) {
-    const notifs = buildNotifications(data);
-    if (notifs.length > seenNotifCount) document.getElementById('notifDot').style.display = 'block';
+    const fresh = buildNotifications(data);
+    // Merge new notifs into history (avoid duplicates by key)
+    const existingKeys = new Set(notifHistory.map(makeNotifKey));
+    let added = false;
+    fresh.forEach(n => {
+        const k = makeNotifKey(n);
+        if (!existingKeys.has(k)) {
+            notifHistory.unshift(n); // newest first
+            existingKeys.add(k);
+            added = true;
+        }
+    });
+    // Keep max 100
+    if (notifHistory.length > 100) notifHistory = notifHistory.slice(0, 100);
+    if (added) localStorage.setItem('lapp_notif_history', JSON.stringify(notifHistory));
+    if (notifHistory.length > seenNotifCount) document.getElementById('notifDot').style.display = 'block';
 }
 
 function buildNotifications(data) {
