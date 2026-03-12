@@ -954,35 +954,52 @@ function toggleStoryLike() {
     setTimeout(() => document.getElementById('storyLikeBtn').style.transform = 'scale(1)', 200);
 }
 
-function toggleStoryWhoPanel() {
+async function toggleStoryWhoPanel() {
     if (!storyGroups.length) return;
     const [username, stories] = storyGroups[currentStoryGroup];
     const story = stories[currentStoryIdx];
     if (!story) return;
 
     const panel = document.getElementById('storyWhoPanel');
-    if (panel.classList.contains('open')) { panel.classList.remove('open'); return; }
+    if (panel.classList.contains('open')) { panel.classList.remove('open'); resumeStory(); return; }
 
-    const storyLikes = JSON.parse(localStorage.getItem('lapp_story_likes') || '{}');
-    const storyViews = JSON.parse(localStorage.getItem('lapp_story_views') || '{}');
-    const likers  = storyLikes[story.url] || [];
-    const viewers = storyViews[story.url] || [];
-
-    let html = '';
-    if (viewers.length) {
-        html += `<div style="font-size:9px;color:var(--neon);font-family:'Space Mono',monospace;letter-spacing:2px;margin-bottom:8px;">👁 VIEWED BY</div>`;
-        html += viewers.map(u => `<div class="story-who-item">
-            <div style="width:28px;height:28px;border-radius:50%;background:#222;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--neon);">
-                ${escHtml(String(u).slice(0,1).toUpperCase())}
-            </div>
-            @${escHtml(u)} ${likers.map(l=>l.toLowerCase()).includes(String(u).toLowerCase()) ? '❤️' : ''}
-        </div>`).join('');
-    }
-    if (!viewers.length && !likers.length) html = '<div style="font-size:11px;color:rgba(255,255,255,0.4);text-align:center;padding:10px;">No views yet</div>';
-
-    panel.innerHTML = html;
+    panel.innerHTML = '<div style="text-align:center;padding:10px;font-size:11px;color:rgba(255,255,255,0.5);">Loading...</div>';
     panel.classList.add('open');
     pauseStory();
+
+    // Fetch from server to get ALL viewers (not just local)
+    try {
+        const data = await apiGet();
+        const serverViewers = (data.messages||[])
+            .filter(m => String(m.status||'')==='story_view' && String(m.attached_media||m.posturl||'')=== story.url)
+            .map(m => String(m.sender||'').toLowerCase())
+            .filter((v,i,a) => a.indexOf(v)===i); // unique
+
+        // Merge with local views
+        const storyViews = JSON.parse(localStorage.getItem('lapp_story_views') || '{}');
+        const localViewers = storyViews[story.url] || [];
+        const allViewers = [...new Set([...serverViewers, ...localViewers])];
+
+        const storyLikes = JSON.parse(localStorage.getItem('lapp_story_likes') || '{}');
+        const likers = storyLikes[story.url] || [];
+
+        let html = '';
+        if (allViewers.length) {
+            html += `<div style="font-size:9px;color:var(--neon);font-family:'Space Mono',monospace;letter-spacing:2px;margin-bottom:8px;">👁 ${allViewers.length} VIEW${allViewers.length!==1?'S':''}</div>`;
+            html += allViewers.map(u => `<div class="story-who-item">
+                <div style="width:28px;height:28px;border-radius:50%;background:#222;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--neon);">
+                    ${escHtml(String(u).slice(0,1).toUpperCase())}
+                </div>
+                <span>@${escHtml(u)}</span>
+                ${likers.map(l=>l.toLowerCase()).includes(String(u).toLowerCase()) ? '<span>❤️</span>' : ''}
+            </div>`).join('');
+        } else {
+            html = '<div style="font-size:11px;color:rgba(255,255,255,0.4);text-align:center;padding:10px;">No views yet</div>';
+        }
+        panel.innerHTML = html;
+    } catch(e) {
+        panel.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.4);text-align:center;padding:10px;">Failed to load</div>';
+    }
 }
 
 async function sendStoryReply() {
@@ -1460,17 +1477,38 @@ function checkNotifications(data) {
 
 function buildNotifications(data) {
     const notifs = [];
-    const myPosts = (data.posts||[]).filter(p => String(p.username).trim().toLowerCase() === currentUser.toLowerCase());
+    const me = currentUser.toLowerCase();
+    const myPosts = (data.posts||[]).filter(p => String(p.username).trim().toLowerCase() === me);
+
+    // Post likes
     myPosts.forEach(p => {
         safeParseArr(p.likers||'[]').forEach(u => {
-            if (u.toLowerCase() !== currentUser.toLowerCase()) notifs.push({ type:'like', user:u, postUrl:p.url, time:p.time });
+            if (u.toLowerCase() !== me) notifs.push({ type:'like', user:u, postUrl:p.url, time:p.time });
         });
+        // Comments on my posts
         (data.messages||[]).filter(m => (m.attached_media||m.posturl||'') === p.url && m.status==='comment')
             .forEach(m => notifs.push({ type:'comment', user:m.sender, text:m.text, time:m.timestamp }));
     });
+
+    // Follow requests
     (data.requests||[])
-        .filter(r => String(r.receiver).trim().toLowerCase() === currentUser.toLowerCase() && r.status==='pending')
+        .filter(r => String(r.receiver).trim().toLowerCase() === me && r.status==='pending')
         .forEach(r => notifs.push({ type:'request', user:r.sender, time:'' }));
+
+    // Story likes — from localStorage
+    const myStoryUrls = myPosts.filter(p => p.visibility==='story').map(p => p.url);
+    const storyLikes = JSON.parse(localStorage.getItem('lapp_story_likes') || '{}');
+    myStoryUrls.forEach(url => {
+        (storyLikes[url] || []).forEach(u => {
+            if (u.toLowerCase() !== me) notifs.push({ type:'storylike', user:u, time:'' });
+        });
+    });
+
+    // Story views — from server
+    (data.messages||[])
+        .filter(m => String(m.status||'')==='story_view' && String(m.receiver||'').toLowerCase()===me)
+        .forEach(m => notifs.push({ type:'storyview', user:m.sender, time:m.timestamp }));
+
     return notifs;
 }
 
@@ -1486,10 +1524,13 @@ async function showNotifications() {
         if (!notifs.length) { document.getElementById('notifList').innerHTML = '<div class="empty-state">NO NOTIFICATIONS YET</div>'; return; }
         document.getElementById('notifList').innerHTML = notifs.reverse().slice(0,30).map(n => {
             let icon='🔔', text='';
-            if (n.type==='like')    { icon='❤️'; text=`<strong>@${escHtml(n.user)}</strong> liked your post`; }
-            if (n.type==='comment') { icon='💬'; text=`<strong>@${escHtml(n.user)}</strong> commented: ${escHtml(n.text||'')}`; }
-            if (n.type==='request') { icon='👥'; text=`<strong>@${escHtml(n.user)}</strong> sent you a follow request`; }
-            return `<div class="notif-item"><div class="notif-icon">${icon}</div><div class="notif-text">${text}</div></div>`;
+            if (n.type==='like')      { icon='❤️'; text=`<strong>@${escHtml(n.user)}</strong> liked your post`; }
+            if (n.type==='comment')   { icon='💬'; text=`<strong>@${escHtml(n.user)}</strong> commented: ${escHtml(n.text||'')}`; }
+            if (n.type==='request')   { icon='👥'; text=`<strong>@${escHtml(n.user)}</strong> sent you a follow request`; }
+            if (n.type==='storylike') { icon='❤️'; text=`<strong>@${escHtml(n.user)}</strong> liked your story`; }
+            if (n.type==='storyview') { icon='👁'; text=`<strong>@${escHtml(n.user)}</strong> viewed your story`; }
+            const timeStr = n.time ? `<span style="font-size:9px;color:var(--muted);margin-left:auto;font-family:'Space Mono',monospace;">${timeAgo(n.time)}</span>` : '';
+            return `<div class="notif-item"><div class="notif-icon">${icon}</div><div class="notif-text">${text}</div>${timeStr}</div>`;
         }).join('');
     } catch(e) { document.getElementById('notifList').innerHTML = '<div class="empty-state">FAILED TO LOAD</div>'; }
 }
@@ -1541,11 +1582,13 @@ async function loadVault() {
         if (saved.length) {
             html += `<div class="section-title">🔖 SAVED POSTS</div><div class="vault-grid">${saved.map(p => {
                 const isVideo = p.type==='video'||/\.(mp4|mov|webm|avi)$/i.test(p.url);
+                const su2 = escHtml(p.url);
                 return `<div class="vault-item" style="${isVideo?'aspect-ratio:unset;':''}">
                     ${isVideo
-                        ? `<video src="${escHtml(p.url)}" controls playsinline style="width:100%;display:block;background:#000;border-radius:14px;"></video>`
-                        : `<img src="${escHtml(p.url)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`}
+                        ? `<video src="${su2}" controls playsinline style="width:100%;display:block;background:#000;border-radius:14px;"></video>`
+                        : `<img src="${su2}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`}
                     <div class="saved-badge">🔖</div>
+                    <button class="vault-del" onclick="unsavePost('${su2}',this)" title="Remove from saved">✕</button>
                 </div>`;
             }).join('')}</div>`;
         }
@@ -1565,6 +1608,20 @@ async function loadVault() {
 
         container.innerHTML = html;
     } catch(e) { container.innerHTML = '<div class="empty-state">FAILED TO LOAD</div>'; }
+}
+
+function unsavePost(url, btn) {
+    savedPosts.delete(url);
+    localStorage.setItem('lapp_saved', JSON.stringify([...savedPosts]));
+    toast('Removed from saved');
+    // Remove the vault item from DOM
+    const item = btn.closest('.vault-item');
+    if (item) {
+        item.style.opacity = '0';
+        item.style.transform = 'scale(0.8)';
+        item.style.transition = 'all 0.2s';
+        setTimeout(() => { item.remove(); }, 200);
+    }
 }
 
 async function deletePost(url, isVault=false) {
@@ -1911,7 +1968,12 @@ async function syncMessages() {
         document.getElementById('chatHeaderOnline').textContent = isOnline ? '🟢 ONLINE' : '';
 
         const convo = (data.messages||[]).filter(m => {
-            if (m.status==='comment' && (!m.receiver||String(m.receiver).trim()==='')) return false;
+            // Exclude comments, story views, story replies that arent DMs
+            const st = String(m.status||'').trim();
+            const mt = String(m.msgtype||'').trim();
+            if (st === 'comment') return false;
+            if (st === 'story_view') return false;
+            if (!m.receiver || String(m.receiver).trim() === '') return false;
             return (String(m.sender).trim().toLowerCase()===currentUser.toLowerCase() && String(m.receiver).trim().toLowerCase()===activeChatWith.toLowerCase()) ||
                    (String(m.sender).trim().toLowerCase()===activeChatWith.toLowerCase() && String(m.receiver).trim().toLowerCase()===currentUser.toLowerCase());
         }).sort((a,b) => new Date(a.timestamp||0)-new Date(b.timestamp||0));
