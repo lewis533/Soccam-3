@@ -88,6 +88,7 @@
         /* STORY VIEWER */
         .story-viewer { position:fixed; inset:0; background:#000; z-index:5000; display:none; flex-direction:column; }
         .story-viewer.open { display:flex; }
+        .story-viewer .story-media-wrap { flex:1; min-height:0; }
         .story-progress-bar { display:flex; gap:4px; padding:12px 12px 0; }
         .story-progress-seg { flex:1; height:3px; background:rgba(255,255,255,0.3); border-radius:2px; overflow:hidden; }
         .story-progress-fill { height:100%; background:white; width:0%; transition:width linear; }
@@ -101,11 +102,11 @@
         .story-media-wrap img, .story-media-wrap video { max-width:100%; max-height:100%; object-fit:contain; }
         .story-tap-left { position:absolute; left:0; top:0; width:40%; height:100%; }
         .story-tap-right { position:absolute; right:0; top:0; width:40%; height:100%; }
-        .story-caption-overlay { position:absolute; bottom:80px; left:16px; right:16px; background:rgba(0,0,0,0.6); border-radius:12px; padding:10px 14px; font-size:13px; color:white; }
-        .story-footer { display:flex; align-items:center; gap:10px; padding:12px 16px; padding-bottom:calc(12px + env(safe-area-inset-bottom)); background:rgba(0,0,0,0.5); flex-shrink:0; }
-        .story-reply-input { flex:1; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3); color:white; padding:10px 14px; border-radius:24px; outline:none; font-size:13px; font-family:'Syne',sans-serif; }
+        .story-caption-overlay { position:absolute; bottom:10px; left:16px; right:16px; background:rgba(0,0,0,0.6); border-radius:12px; padding:10px 14px; font-size:13px; color:white; }
+        .story-footer { display:flex; align-items:center; gap:10px; padding:12px 16px 16px; background:rgba(0,0,0,0.85); flex-shrink:0; position:relative; z-index:10; border-top:1px solid rgba(255,255,255,0.1); }
+        .story-reply-input { flex:1; background:rgba(255,255,255,0.18); border:1.5px solid rgba(255,255,255,0.4); color:white; padding:12px 16px; border-radius:24px; outline:none; font-size:14px; font-family:'Syne',sans-serif; }
         .story-reply-input::placeholder { color:rgba(255,255,255,0.5); }
-        .story-action-btn { background:none; border:none; color:white; font-size:22px; cursor:pointer; padding:4px 6px; display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0; }
+        .story-action-btn { background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; font-size:22px; cursor:pointer; padding:8px 10px; display:flex; flex-direction:column; align-items:center; gap:3px; flex-shrink:0; border-radius:12px; }
         .story-action-btn span { font-size:9px; font-family:'Space Mono',monospace; color:rgba(255,255,255,0.7); }
         .story-who-panel { position:absolute; bottom:80px; left:0; right:0; background:rgba(0,0,0,0.85); border-top:1px solid rgba(255,255,255,0.1); padding:14px 16px; max-height:200px; overflow-y:auto; display:none; }
         .story-who-panel.open { display:block; }
@@ -488,7 +489,7 @@
 </nav>
 
 <script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzhJ5_anwdjUiO0e1rYSSUcxBO-DBTy9vPvPmeUsTjo2DpMJbN4Et2aIV_ihPQh60U8/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxwknSutmwt8-r3qz3X14HHS__fEXZNxulPSCebG3OA7s2VNQkPUvaEpGPpNBJT7sdR/exec";
 const CLOUD_URL  = "https://api.cloudinary.com/v1_1/ddrpctqpl/auto/upload";
 const PRESET     = "lapp_reset";
 const REACTIONS  = ['❤️','😂','😮','😢','🔥','👏'];
@@ -554,18 +555,16 @@ function loginSuccess() {
     showPage('feedPage');
     setInterval(pollUnreadDot, 10000);
     setInterval(pollOnlineStatus, 15000);
-    // Register with OneSignal — set external ID to username so push can target by username
+    // Register with OneSignal
     if (window.OneSignalDeferred) {
         OneSignalDeferred.push(async function(OneSignal) {
             try {
-                // Request permission first
-                const permission = await OneSignal.Notifications.requestPermission();
-                if (permission) {
-                    // Link this device to the username
-                    await OneSignal.login(currentUser.toLowerCase());
-                    console.log('[OneSignal] Registered as:', currentUser);
-                }
-            } catch(e) { console.warn('[OneSignal] setup error:', e); }
+                await OneSignal.Notifications.requestPermission();
+                await OneSignal.login(currentUser.toLowerCase());
+                // Also set external ID via the tag system as fallback
+                OneSignal.User.addTag('username', currentUser.toLowerCase());
+                console.log('[OneSignal] login done for:', currentUser);
+            } catch(e) { console.warn('[OneSignal] error:', e.message); }
         });
     }
     // Mark user as online
