@@ -19,7 +19,21 @@
                 allowLocalhostAsSecureOrigin: true,
                 notifyButton: { enable: false },
                 serviceWorkerParam: { scope: "/" },
-                serviceWorkerPath: "OneSignalSDKWorker.js"
+                serviceWorkerPath: "OneSignalSDKWorker.js",
+                promptOptions: {
+                    slidedown: {
+                        prompts: [{
+                            type: "push",
+                            autoPrompt: true,
+                            text: {
+                                actionMessage: "Get notified when friends post, message or like your posts",
+                                acceptButton: "Allow",
+                                cancelButton: "Later"
+                            },
+                            delay: { pageViews: 1, timeDelay: 3 }
+                        }]
+                    }
+                }
             });
         });
     </script>
@@ -540,10 +554,18 @@ function loginSuccess() {
     showPage('feedPage');
     setInterval(pollUnreadDot, 10000);
     setInterval(pollOnlineStatus, 15000);
-    // Register with OneSignal
+    // Register with OneSignal — set external ID to username so push can target by username
     if (window.OneSignalDeferred) {
         OneSignalDeferred.push(async function(OneSignal) {
-            try { await OneSignal.login(currentUser); await OneSignal.Notifications.requestPermission(); } catch(e) {}
+            try {
+                // Request permission first
+                const permission = await OneSignal.Notifications.requestPermission();
+                if (permission) {
+                    // Link this device to the username
+                    await OneSignal.login(currentUser.toLowerCase());
+                    console.log('[OneSignal] Registered as:', currentUser);
+                }
+            } catch(e) { console.warn('[OneSignal] setup error:', e); }
         });
     }
     // Mark user as online
